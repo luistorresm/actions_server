@@ -1,0 +1,47 @@
+aml_obj = env['account.move.line']
+company = env['res.company'].browse(1)
+country = company.country_id.id
+company.write({'country_id': False})
+invoices = record.browse([1174, 818, 640, 638, 630, 590, 586, 584, 574, 572, 556, 554, 27544, 540, 490, 488, 456, 452, 440, 396, 394, 384, 354, 352, 336, 326, 310, 288, 250, 244, 238, 144, 10, 28832, 4, 10546, 6872, 5786, 5784, 16624, 12894, 28494, 28709])
+invoice_not_updated = record.browse([640, 638, 630, 590, 586, 584]) # CFDI con 4 decimales y Odoo solo 2
+# invoice_bad_taxes(572)
+for inv in (invoices - invoice_not_updated):
+  state = inv.state
+  date = inv.date_invoice
+  move_line_ids = inv.move_id.open_reconcile_view()
+  move_line = move_line_ids['domain'][0][2]
+  move_line = aml_obj.browse(move_line).filtered(lambda dat: dat.journal_id.id != 4 and dat.account_id.internal_type in ('receivable', 'payable'))
+  inv.with_context(invoice_id=inv.id).action_invoice_cancel()
+  inv.refresh()
+  inv.write({'state': 'draft'})
+  inv.refresh()
+  cfdi = inv.l10n_mx_edi_get_xml_etree()
+  for conc in cfdi.Conceptos.Concepto:
+    no_id = conc.get('noIdentificacion', conc.get('NoIdentificacion'))
+    lines = inv.invoice_line_ids.filtered(lambda l: l.product_id.default_code == no_id)
+    for line in lines:
+      #if len(line) > 1:
+        #raise Warning('Factura con 2 lineas %s al mismo producto [%s]' % (inv.id, no_id))
+      price_unit = float(conc.get('ValorUnitario', conc.get('valorUnitario')))
+      if line.price_unit != price_unit:
+        inv.message_post(body='Se actualizo el precio unitario de la linea del producto %s de %s a %s' % (line.product_id.default_code, line.price_unit, price_unit))
+        line.write({'price_unit': price_unit})
+  inv.compute_taxes()
+  inv.action_invoice_open()
+  inv.refresh()
+  move_line = move_line.search([('id', 'in', move_line.ids)])
+  for move in move_line:
+    inv.assign_outstanding_credit(move.id)
+  if date != inv.move_id.date:
+    raise Warning('La fecha de la factura es diferente a la de la poliza')
+  if state != inv.state:
+    raise Warning('La factura %s ha cambiado de estado' % inv.number)
+  total_cfdi = float(cfdi.get('total', cfdi.get('Total')))
+  if inv.amount_total != total_cfdi:
+    raise Warning('El total de la factura %s no se pudo corregir, Odoo: %s - CFDI: %s' % (inv.id, inv.amount_total, total_cfdi))
+  move_line_ids = inv.move_id.open_reconcile_view()
+  # if move_line != move_line_ids['domain'][0][2]:
+  #  raise Warning('%s %s' % (move_line, move_line_ids['domain'][0][2]))
+  #  raise Warning('Cambiaron las lineas conciliadas de esta factura')
+    
+company.write({'country_id': country})
