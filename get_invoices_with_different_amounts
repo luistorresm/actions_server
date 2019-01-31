@@ -1,0 +1,22 @@
+logg = env['ir.logging'].search([('func', '=', 'LuisT: Facturas con montos diferentes'), ('message', 'ilike', 'Verificadas')])
+invoices = []
+for rec in logg:
+  invoices.extend(rec.message.split('[')[1][:-1].split(','))
+  
+# raise Warning(logg)
+
+invoices = record.search([
+  ('type', 'in', ['out_invoice', 'out_refund']),
+  ('id', 'not in', invoices)], limit=4000)
+  
+bad_invoices = []
+for inv in invoices:
+  cfdi = inv.l10n_mx_edi_get_xml_etree()
+  if not cfdi:
+    continue
+  difference = abs((round(inv.amount_total, 2) - round(float(cfdi.get('total', cfdi.get('Total'))), 2)))
+  if difference > 1:
+    bad_invoices.append(inv.id)
+
+log(message='Facturas con diferencia entre Odoo y el XML (Son: %s facturas) %s' % (len(bad_invoices), bad_invoices), level='info')
+log(message='Verificadas %s' % invoices.ids)
